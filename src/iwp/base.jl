@@ -84,7 +84,7 @@ end
 
 function simulate(
     sys::ParametricControlSystem, ps::AbstractVector; 
-    x0=[3.,0,0,0], tf=3.0, kv=1, umax=Inf, n=101
+    x0=[3.,0,0,0], tf=3.0, n=ceil(Int,1+tf/0.1)
 )
     t0 = zero(tf)
     prob = ODEProblem(sys, ps, (t0, tf))
