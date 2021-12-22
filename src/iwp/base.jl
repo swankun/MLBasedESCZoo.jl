@@ -1,4 +1,5 @@
-export ReactionWheelPendulum, wrap, unwrap
+export ReactionWheelPendulum, wrap, unwrap, simulate
+
 
 struct ReactionWheelPendulum end
 

@@ -17,6 +17,7 @@ using LinearAlgebra
 using OrdinaryDiffEq
 
 import Distributions, DistributionsAD, LogExpFunctions
+using Distributions
 
 include("base.jl")
 include("idapbc.jl")
