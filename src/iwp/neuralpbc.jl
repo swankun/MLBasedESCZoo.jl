@@ -16,7 +16,7 @@ function policyfrom(P::NeuralPBC; umax=Inf)
         if (1-cq1 < 1-cosd(10)) && abs(q1dot) < 5
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
         else
-            effort = controller(P,x,p)
+            effort = P(x,p)
         end
         return clamp(effort, -umax, umax)
     end
