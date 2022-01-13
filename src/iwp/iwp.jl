@@ -4,6 +4,7 @@ using MLBasedESC
 
 using BSON
 using CairoMakie
+using LaTeXStrings
 
 import DiffEqFlux
 using DiffEqFlux: FastChain, FastDense

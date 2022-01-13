@@ -13,7 +13,7 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < pi/3
+        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < 5
         # if (1-cq1 < 1-cosd(10)) && abs(q1dot) < pi/4
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
@@ -129,7 +129,7 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
     end
     Axis(fig[3,1], title="control")
     lines!(t, ctrl)
-    out && save("out.png", fig)
+    out && save("plots/out.png", fig)
     return fig
 end
 function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
@@ -147,6 +147,54 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     ax, ct = contour(fig[3,2][1,1], X,Y,Z, colormap=:gnuplot)
     ax.title = "Hd"
     Colorbar(fig[3,2][1,2], ct)
-    out && save("out.png", fig)
+    # Axis(fig[4,1], title="Hd(t)")
+    # Hd = map(x->pbc.Hd(wrap(x),θ)[1], eachcol(first(evolution)))
+    # t = range(0, 1, length=size(evolution[1],2))
+    # lines!(t, Hd)
+    out && save("plots/out.png", fig)
+    return fig
+end
+
+function plot_uru(pbc::NeuralPBC, θ; out=true)
+    N = 51
+    X = range(-pi, pi, length=N)
+    Y = range(-pi, pi, length=N)
+    Z = zeros(N,N)
+    D = Vector{Tuple{Int,Int}}()
+    Threads.@threads for ix in 1:length(X)
+        for iy in 1:length(Y) 
+            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=0.5, lqrmax=1.5, tf=40.0)
+            Z[ix,iy] = sum(abs2,u)
+            if abs(x[3,end]) > 1e-2
+                push!(D, (ix,iy))
+            end
+        end
+    end
+    Zbar = maximum(Z)
+    for d in D
+        # @show (X[first(d)], Y[last(d)])
+        Z[d...] = Zbar
+    end
+    
+    fig = Figure(resolution=(3.167,3).*300)
+    majorfontsize = 30*2
+    minorfontsize = 24*2
+    ax_hm = Axis(
+        fig[1,1][1,1], 
+        aspect=AxisAspect(1),
+        xticks=(range(-pi,pi,step=0.5pi), ["-π", "-π/2", "0", "π/2", "π"]),
+        yticks=-3:1:3,
+        title=L"u^\top R u", titlesize=majorfontsize, 
+        xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+    )
+    hm = heatmap!(ax_hm, X,Y,Z, colormap=:RdPu_4, colorrange=(0.0,20.0))
+    Colorbar(fig[1,1][1,2], hm, 
+        # label=L"u^\top Ru", labelsize=30, 
+        ticklabelfont="CMU Serif", ticklabelsize=minorfontsize
+    )
+    out && save("plots/uRu.svg", fig)
     return fig
 end
