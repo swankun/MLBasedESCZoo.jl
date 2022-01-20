@@ -31,15 +31,15 @@ MLBasedESC.IDAPBCProblem(r::ReactionWheelPendulum) = MLBasedESC.IDAPBCProblem(r,
 function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum, 
     ::IDAPBCVariants{:Chain}
 )
+    # Md⁻¹ = PSDMatrix(2, ()->[4.688072309384954 0.5; 0.5 15.339299776947408])
     Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
     # Md⁻¹ = PSDMatrix(2, ()->[82.47221754422259 0.0; 81.64365569190376 0.9900262236663507])
     # Md⁻¹ = Md⁻¹_groundtruth
     Vd = FastChain(
-        # inmap, FastDense(4, 10, elu; bias=false),
-        FastDense(2, 10, elu; bias=false),
-        FastDense(10, 20, elu; bias=false),
-        FastDense(20, 4, elu; bias=false),
-        FastDense(4, 1, square; bias=false),
+        # inmap, FastDense(4, 10, tanh; bias=false),
+        FastDense(2, 10, tanh; bias=false),
+        FastDense(10, 10, tanh; bias=false),
+        FastDense(10, 1, square; bias=false),
     )
     P = IDAPBCProblem(2,M⁻¹,Md⁻¹,V,Vd,G,G⊥)
     ps = paramstack(P)
@@ -66,24 +66,27 @@ end
 
 function saveidapbc(θ, file)
     idapbc = (
-        Mdinv = :( PSDMatrix(2, ()->[23.626696, 0.0, 0.0, 34.72419]) ),
+        Mdinv = :( PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898]) ),
+        # Mdinv = :( Md⁻¹_groundtruth ),
         Vd = :(
             FastChain(
-                FastDense(2, 10, elu; bias=false),
-                FastDense(10, 20, elu; bias=false),
-                FastDense(20, 4, elu; bias=false),
-                FastDense(4, 1, square; bias=false),
+                FastDense(2, 10, tanh; bias=false),
+                FastDense(10, 10, tanh; bias=false),
+                FastDense(10, 1, square; bias=false),
             )
         ),
-        θ = θ
+        θ = θ,
+        Kv = 2e-3
     )
     BSON.@save file idapbc
 end
 
 function train!(P::IDAPBCProblem, ps; dq=0.1, kwargs...)
     L1 = PDELossPotential(P)
-    # data = ([q1,q2] for q1 in -2pi:pi/20:2pi for q2 in -50pi:pi/10:50pi)
-    data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in -50pi:pi/2:50pi)
+    # data = ([q1,q2] for q1 in -2pi:pi/20:2pi for q2 in -5pi:pi/10:5pi)
+    # data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in -10pi:pi/2:10pi)
+    # data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in range(-100,100,length=101))
+    data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi)
     optimize!(L1,ps,collect(data);kwargs...)
 end
 
@@ -148,7 +151,7 @@ function plot(pbc::IDAPBCProblem, θ; out=true, kwargs...)
 end
 
 function plot_uru(pbc::IDAPBCProblem, θ; out=true)
-    N = 51
+    N = 11
     X = range(-pi, pi, length=N)
     Y = range(-pi, pi, length=N)
     Z = zeros(N,N)
@@ -156,8 +159,9 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
             # x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=40.0)
+            x, u = evaluate(pbc, θ, kv=2.5e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0)
             # x, u = evaluate(pbc, θ, kv=10, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
-            x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
+            # x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
             Z[ix,iy] = sum(abs2,u)
             if abs(x[3,end]) > 1e-2
                 push!(D, (ix,iy))
@@ -199,18 +203,18 @@ end
 
 function plot_Vd(pbc::IDAPBCProblem, θ)
     fig = Figure()
-    N = 501
-    X = range(-1.5pi, 1.5pi, length=N)
-    # Y = range(-pi, pi, length=N)
-    Y = range(-4pi, 4pi, length=N)
+    N = 101
+    X = range(-pi, pi, step=pi/100)
+    Y = range(-pi, pi, step=pi/100)
+    # X = range(-2pi, 2pi, step=pi/50)
     # Y = range(-20, 20, length=N)
     ax, ct = contour(fig[1,1][1,1],
         X,Y,(x,y)->pbc[:Vd]([x;y],θ)[1],
-        color=:black,
-        # levels=15,
-        levels=[0,0.4,10,20,40,60],
+        # color=:black,
+        # levels=20,
+        levels=[0,1,10,20,40,60,80,100,120],
     )
-    # Colorbar(fig[1,1][1,2], ct)
+    Colorbar(fig[1,1][1,2], ct)
     save("plots/Vd.png", fig)
     fig
 end
