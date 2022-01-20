@@ -13,8 +13,8 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        # if (1-cq1 < 1-cosd(15)) && abs(q1dot) < 5
-        if (1-cq1 < 1-cosd(10)) && abs(q1dot) < pi/2
+        if (1-cq1 < 1-cosd(25)) && abs(q1dot) < 5
+        # if (1-cq1 < 1-cosd(20)) && abs(q1dot) < pi/2
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -31,6 +31,16 @@ function MLBasedESC.ParametricControlSystem(::ReactionWheelPendulum,
     return ParametricControlSystem{false}(
         eomwrap, policyfrom(prob; kwargs...), 6
     )
+end
+
+function saveweights(pbc::NeuralPBC, ps)
+    filename = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
+    parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
+    !isdir(parentdir) && run(`mkdir $parentdir`)
+    struct_filepath = parentdir * filename * "_pbc.bson"
+    weight_filepath = parentdir * filename * "_ps.bson"
+    BSON.@save struct_filepath pbc
+    BSON.@save weight_filepath ps
 end
 
 
@@ -53,6 +63,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
     optimizer = Flux.ADAM()
     sampler(batchsize, ps) = customdagger(prob, batchsize, ps, tf=tf)
     data = reduce(vcat, sampler(batchsize, ps) for _=1:replaybuffer)
+    lastsave = Dates.now()
     for nepoch in 1:maxiters
         data = vcat(last(data,(replaybuffer-1)*batchsize), sampler(batchsize, ps))
         dataloader = Flux.Data.DataLoader(data; batchsize=batchsize, shuffle=true)
@@ -73,8 +84,10 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
                     x0=unwrap(first(batch)));
             end
         end
-        # plot(pbc, ps, umax=umax, lqrmax=lqrmax, tf=batchsize*tf, 
-        #             x0=[3,0pi*randn(),0randn(),0randn()]);
+        if Dates.now()-lastsave > Minute(1)
+            saveweights(pbc, ps)
+            lastsave = Dates.now()
+        end
         MLBasedESC.estatus(losstypestr, nepoch, epochloss/nbatch, maxiters)
     end
 end
@@ -94,6 +107,7 @@ function customdagger(prob, n, θ; tf=last(prob.tspan))
     else
         xinit = rand(D)/2
         xinit[1:2] *= pi
+        xinit[3] = clamp(xinit[3], -pi, pi)
         x0 = wrap(xinit)
         tspan = (zero(tf), tf)
         tsave = range(first(tspan), last(tspan), length=n)
