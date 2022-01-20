@@ -6,8 +6,8 @@ struct ReactionWheelPendulum end
 const I1 = 0.0455
 const I2 = 0.00425
 const m3 = 0.183*9.81
-const b1 = 1/1000
-const b2 = 5/1000
+const b1 = 5/1000
+const b2 = 1/100
 const M⁻¹ = inv(diagm([I1, I2]))
 const G = [-1.0, 1.0]
 const G⊥ = [1.0 1.0]

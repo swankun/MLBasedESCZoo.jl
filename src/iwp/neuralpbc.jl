@@ -13,8 +13,8 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < 5
-        # if (1-cq1 < 1-cosd(10)) && abs(q1dot) < pi/4
+        # if (1-cq1 < 1-cosd(15)) && abs(q1dot) < 5
+        if (1-cq1 < 1-cosd(10)) && abs(q1dot) < pi/2
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -35,7 +35,7 @@ end
 
 
 function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps; 
-    tf=3.0, dt=0.1, umax=0.5, lqrmax=1.5,
+    tf=3.0, dt=0.1, umax=1.0, lqrmax=1.5,
     batchsize=4, maxiters=1000, replaybuffer=5
 )
     sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
