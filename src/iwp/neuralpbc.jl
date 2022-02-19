@@ -13,8 +13,7 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(25)) && abs(q1dot) < 5
-        # if (1-cq1 < 1-cosd(20)) && abs(q1dot) < pi/2
+        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -24,6 +23,10 @@ function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     end
 end
 
+function quadneuralnet(x, f, ps)
+    Q = f(x,ps)
+    dot(x, Q*x)
+end
 
 function MLBasedESC.ParametricControlSystem(::ReactionWheelPendulum, 
     prob::NeuralPBC; kwargs...
@@ -48,13 +51,13 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
     tf=3.0, dt=0.1, umax=1.0, lqrmax=1.5,
     batchsize=4, maxiters=1000, replaybuffer=5
 )
-    sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
-    # sys = ParametricControlSystem{false}(
-    #     eomwrap, (x,θ)->pbc(x,θ), 6
-    # )
+    # sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
+    sys = ParametricControlSystem{false}(
+        eomwrap, (x,θ)->pbc(x,θ), 6
+    )
     dist(x) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        return 2(1-cq1) + (q1dot^2)/4 + (q2dot^2)/8
+        return 4(1-cq1) + (q1dot^2)/4 + (q2dot^2)/10
     end
     loss = SetDistanceLoss(dist, wrap(zeros(4)), 1/100)
     losstypestr = typeof(loss).name.name |> string
@@ -79,7 +82,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
             end
             MLBasedESC.bstatus(nbatch, max_batch, ls)
             nbatch += 1
-            if iszero(nbatch % 10)
+            if iszero(nbatch % 10) || (nbatch == max_batch)
                 plot(pbc, ps, umax=umax, lqrmax=lqrmax, tf=tf, 
                     x0=unwrap(first(batch)));
             end
@@ -135,7 +138,7 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
     =#
     traj, ctrl = evolution
     t = range(0, 1, length=size(traj,2))
-    fig = Figure()
+    fig = Figure(size=(800,800))
     labels = ("q1","q2","q1dot","q2dot")
     for (x, xstr, ij) = zip(eachrow(traj), labels, Iterators.product(1:2,1:2))
         Axis(fig[ij...], title=xstr)
@@ -147,18 +150,29 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
     return fig
 end
 function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
-    evolution = evaluate(pbc, θ; kwargs...)
+    # evolution = evaluate(pbc, θ; kwargs...)
+    traj, _ = evaluate(pbc, θ; kwargs...)
+    ham = map(eachcol(traj)) do x0
+        x0bar = wrap(x0) 
+        pbc.Hd(x0bar, θ)[1]
+    end
+    evolution = (traj, ham)
     fig = plot(evolution, out=false)
     X = range(-pi, pi, length=50)
     Y = range(-pi, pi, length=50)
     Z = zeros(50,50)
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
-            x = wrap([X[ix],Y[iy],0,0])
+            # x = wrap([X[ix],Y[iy],0,0])
+            x = wrap([X[ix],0,Y[iy],0])
             Z[ix,iy] = pbc.Hd(x,θ)[1]
         end
     end
-    ax, ct = contour(fig[3,2][1,1], X,Y,Z, colormap=:gnuplot)
+    zmin = minimum(Z)
+    zmax = maximum(Z)
+    ax, ct = contour(fig[3,2][1,1], X,Y,Z, colormap=:gnuplot,
+        levels=range(zmin, zmax, length=10)
+    )
     ax.title = "Hd"
     Colorbar(fig[3,2][1,2], ct)
     # Axis(fig[4,1], title="Hd(t)")
@@ -169,25 +183,67 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     return fig
 end
 
+function contour_Hd(pbc::NeuralPBC, θ)
+    N = 101
+    X = range(-pi, pi, length=N)
+    Y = range(-pi, pi, length=N)
+    Z = zeros(N,N)
+    Threads.@threads for ix in 1:length(X)
+        for iy in 1:length(Y) 
+            # x = wrap([X[ix],Y[iy],0,0])
+            x = wrap([X[ix],Y[iy],0,0])
+            Z[ix,iy] = pbc.Hd(x,θ)[1]
+        end
+    end
+    fig = Figure(resolution=(4,3).*200, figure_padding=0,)
+    zmin = minimum(Z)
+    zmax = maximum(Z)
+    ax = Axis(fig[1,1],
+        xlabel=L"$q_1$",
+        ylabel=L"$q_2$",
+        xlabelpadding=0.0,
+        ylabelpadding=0.0,
+        xticks=piticks(1),
+        yticks=piticks(1),
+        title=L"Level sets of $H_d$"
+    )
+    # hidespines!(ax)
+    hidedecorations!(ax, 
+        # ticks=false,
+        ticklabels=false, 
+        label=false
+    )
+    # tightlimits!(ax)
+    ct = contour!(X,Y,Z, colormap=:grays, linewidth=2.0,
+        levels=8
+    )
+    # Colorbar(fig[1,1][1,2], ct)
+    save("plots/neuralpbc_contour.eps", fig)
+    save("plots/neuralpbc_contour.png", fig)
+end
+
 function plot_uru(pbc::NeuralPBC, θ; out=true)
     N = 51
     X = range(-pi, pi, length=N)
     Y = range(-pi, pi, length=N)
     Z = zeros(N,N)
-    D = Vector{Tuple{Int,Int}}()
+    D = Vector{Tuple{Int,Int,Matrix{Float64}}}()
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
-            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=0.5, lqrmax=1.5, tf=40.0)
+            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=0.25, lqrmax=1.5, tf=60.0)
             Z[ix,iy] = sum(abs2,u)
             if abs(x[3,end]) > 1e-2
-                push!(D, (ix,iy))
+                push!(D, (ix,iy,x))
             end
         end
     end
     Zbar = maximum(Z)
     for d in D
-        # @show (X[first(d)], Y[last(d)])
-        Z[d...] = Zbar
+        ix, iy, x = d
+        x0 = (X[ix], Y[iy])
+        @show x0
+        @show x[:,end]
+        Z[ix,iy] = Zbar
     end
     
     fig = Figure(resolution=(3.167,3).*300)
@@ -196,19 +252,25 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
     ax_hm = Axis(
         fig[1,1][1,1], 
         aspect=AxisAspect(1),
-        xticks=(range(-pi,pi,step=0.5pi), ["-π", "-π/2", "0", "π/2", "π"]),
+        # xticks=(range(-pi,pi,step=0.5pi), ["-π", "-π/2", "0", "π/2", "π"]),
+        xticks=piticks(0.5),
         yticks=-3:1:3,
-        title=L"u^\top R u", titlesize=majorfontsize, 
-        xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
-        ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
-        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
-        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+        # title=L"u^\top R u", 
+        # titlesize=majorfontsize, 
+        # xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        # ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        # xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        # yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
     )
-    hm = heatmap!(ax_hm, X,Y,Z, colormap=:RdPu_4, colorrange=(0.0,20.0))
+    hm = heatmap!(ax_hm, X,Y,Z, 
+        colormap=:RdPu_4, 
+        # colorrange=(0.0,20.0)
+    )
     Colorbar(fig[1,1][1,2], hm, 
         # label=L"u^\top Ru", labelsize=30, 
-        ticklabelfont="CMU Serif", ticklabelsize=minorfontsize
+        # ticklabelfont="CMU Serif", ticklabelsize=minorfontsize
     )
+    out && save("plots/uRu.png", fig)
     out && save("plots/uRu.svg", fig)
     return fig
 end

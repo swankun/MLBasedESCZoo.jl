@@ -23,6 +23,7 @@ import Distributions, DistributionsAD, LogExpFunctions
 using Distributions
 
 include("base.jl")
+include("plotutils.jl")
 include("idapbc.jl")
 include("bayes_idapbc.jl")
 include("neuralpbc.jl")

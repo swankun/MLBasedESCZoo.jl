@@ -34,13 +34,20 @@ function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum,
     # Md⁻¹ = PSDMatrix(2, ()->[4.688072309384954 0.5; 0.5 15.339299776947408])
     Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
     # Md⁻¹ = PSDMatrix(2, ()->[82.47221754422259 0.0; 81.64365569190376 0.9900262236663507])
+    # Md⁻¹ = PSDMatrix(2, ()->randn(4))
     # Md⁻¹ = Md⁻¹_groundtruth
+    # Md⁻¹ = FastChain(
+    #     FastDense(2, 8, elu; bias=true),
+    #     FastDense(8, 4; bias=true),
+    #     MLBasedESC.posdef
+    # )
     Vd = FastChain(
         # inmap, FastDense(4, 10, tanh; bias=false),
-        FastDense(2, 10, tanh; bias=false),
-        FastDense(10, 10, tanh; bias=false),
-        FastDense(10, 1, square; bias=false),
+        FastDense(2, 10, elu; bias=false),
+        FastDense(10, 5, elu; bias=false),
+        FastDense(5, 1, square; bias=false),
     )
+    # Vd = SOSPoly(2, 1:1)
     P = IDAPBCProblem(2,M⁻¹,Md⁻¹,V,Vd,G,G⊥)
     ps = paramstack(P)
     return P, ps
@@ -64,17 +71,18 @@ function loadidapbc(file)
     return P, idapbc.θ
 end
 
-function saveidapbc(θ, file)
+function saveidapbc(P, θ, file)
+    vds = *(
+        "FastChain(",
+        ("FastDense($(l.in),$(l.out),$(l.σ);bias=$(l.bias))," for l in P.Vd.layers)...,
+        ")"
+    )
     idapbc = (
-        Mdinv = :( PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898]) ),
+        Mdinv = quote
+            PSDMatrix(2, ()->$(θ[1:4]))
+        end,
         # Mdinv = :( Md⁻¹_groundtruth ),
-        Vd = :(
-            FastChain(
-                FastDense(2, 10, tanh; bias=false),
-                FastDense(10, 10, tanh; bias=false),
-                FastDense(10, 1, square; bias=false),
-            )
-        ),
+        Vd = Meta.parse(vds),
         θ = θ,
         Kv = 2e-3
     )
@@ -83,10 +91,13 @@ end
 
 function train!(P::IDAPBCProblem, ps; dq=0.1, kwargs...)
     L1 = PDELossPotential(P)
-    # data = ([q1,q2] for q1 in -2pi:pi/20:2pi for q2 in -5pi:pi/10:5pi)
+    L2 = PDELossKinetic(P)
+    # data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in -2pi:pi/10:2pi) |> collect
     # data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in -10pi:pi/2:10pi)
-    # data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in range(-100,100,length=101))
-    data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi)
+    data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in range(-20,20,length=81)) |> collect
+    # data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi)
+    append!(data, [q1,q2] for q1 in -pi/4:pi/40:pi/4 for q2 in -pi/4:pi/40:pi/4)
+    # optimize!(L2,ps,collect(data);kwargs...)
     optimize!(L1,ps,collect(data);kwargs...)
 end
 
@@ -96,8 +107,8 @@ function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
         xbar = [rem2pi.(x[1:2], RoundNearest); x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
-        if (1-cos(q1) < 1-cosd(15)) && abs(q1dot) < 5
-            effort = -dot(LQR, [sin(q1), sin(q2), q1dot, q2dot])
+        if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
+            effort = -dot(LQR, xbar)
             return clamp(effort, -lqrmax, lqrmax)
         else
             effort = controller(P,xbar,p,kv=kv)
@@ -150,8 +161,67 @@ function plot(pbc::IDAPBCProblem, θ; out=true, kwargs...)
     return fig
 end
 
+function publication_plot(pbc::IDAPBCProblem, θ; kv=1.2e-3, tf=6.0)
+    kwargs = (
+        umax = Inf,
+        tf = tf,
+        n = 1001,
+        x0 = [3.,0,0,0],
+        kv = kv,
+        # kv = 1.2e-3,
+        # kv = 5.0,
+    )
+    evolution = evaluate(pbc, θ; kwargs...)
+    traj, _ = evolution
+    Hd = map(eachcol(traj)) do x
+        q = x[1:2]
+        qdot = x[3:4]
+        momentum = MLBasedESC._M⁻¹(pbc,q) \ qdot
+        return hamiltoniand(pbc, [q;momentum], θ)
+    end
+    Hd[1:12] .= Hd[12]
+    t = range(0, kwargs.tf, length=size(traj,2))
+    majorfontsize = 36*1.5
+    minorfontsize = 24*1.5
+    fig = Figure(resolution=(1800,500))
+    ax1 = Axis(fig[1,1],
+        xlabel="Time (s)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        ylabel=L"Pendulum angle (radians)$\:$", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+    )
+    lines!(ax1, t, traj[1,:], color=:black, linewidth=2)
+    ax1.yticks = -3:3
+    ylims!(-1.5, 3.5)
+
+    ax2 = Axis(fig[1,2],
+        xlabel="Time (s)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        ylabel=L"Rotor angle (radians) $\:$", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+    )
+    lines!(ax2, t, traj[2,:], color=:black, linewidth=2)
+    # ax2.yticks = -60:20:60
+    # ylims!(-65, 65)
+
+    ax3 = Axis(fig[1,3],
+        xlabel="Time (s)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        ylabel=L"Learned Hamiltonian $H_d^{\;\theta}$", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+    )
+    lines!(ax3, t, Hd, color=:black, linewidth=2)
+    # ax2.yticks = -60:20:60
+    # ylims!(-65, 65)
+    save("plots/out.png", fig)
+    save("plots/idapbc_iwp_evolution.eps", fig)
+    return fig
+end
+
+plot_uru(::IDAPBCVariants{:Truth}) = plot_uru(IDAPBCProblem(ReactionWheelPendulum(), TruthIDAPBC)...)
+plot_uru(::IDAPBCVariants{:Chain}) = plot_uru(loadidapbc("src/iwp/models/publications/idapbc_uru.bson")...)
 function plot_uru(pbc::IDAPBCProblem, θ; out=true)
-    N = 11
+    N = 51
     X = range(-pi, pi, length=N)
     Y = range(-pi, pi, length=N)
     Z = zeros(N,N)
@@ -159,9 +229,10 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
             # x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=40.0)
-            x, u = evaluate(pbc, θ, kv=2.5e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0)
+            # x, u = evaluate(pbc, θ, kv=2.5e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0)
             # x, u = evaluate(pbc, θ, kv=10, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
-            # x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
+            x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
+            # x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=40.0) # publications/idapbc_uru.bson
             Z[ix,iy] = sum(abs2,u)
             if abs(x[3,end]) > 1e-2
                 push!(D, (ix,iy))
@@ -180,41 +251,58 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
     ax_hm = Axis(
         fig[1,1][1,1], 
         aspect=AxisAspect(1),
-        xticks=(range(-pi,pi,step=0.5pi), ["-π", "-π/2", "0", "π/2", "π"]),
+        xticks=piticks(0.5),
         yticks=-3:1:3,
-        title=L"u^\top R u", titlesize=majorfontsize, 
-        xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
-        ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
-        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
-        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+        title=L"u^\top R u", 
+        # titlesize=majorfontsize, 
+        # xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        # ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        # xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        # yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
     )
     hm = heatmap!(ax_hm, X,Y,Z, colormap=:RdPu_4, 
-        # colorrange=(0.0,200),
-        colorrange=(0.0,2000),
+        # colorrange=(0.0,120),
+        colorrange=(0.0,2000), # TruthIDAPBC
     )
     Colorbar(fig[1,1][1,2], hm, 
         # label="(× 1E+04)", labelsize=30, 
-        ticklabelfont="CMU Serif", ticklabelsize=20*2,
+        # ticklabelfont="CMU Serif", ticklabelsize=20*2,
         # tickformat=(xs)->["$(floor(Int,x/1e4))×10⁴" for x in xs]
     )
+    out && save("plots/uRu.svg", fig)
     out && save("plots/uRu.png", fig)
     return fig
 end
 
 function plot_Vd(pbc::IDAPBCProblem, θ)
     fig = Figure()
-    N = 101
+    N = 201
     X = range(-pi, pi, step=pi/100)
-    Y = range(-pi, pi, step=pi/100)
+    # Y = range(-2pi, 2pi, step=pi/50)
     # X = range(-2pi, 2pi, step=pi/50)
-    # Y = range(-20, 20, length=N)
-    ax, ct = contour(fig[1,1][1,1],
+    Y = range(-20, 20, length=N)
+    majorfontsize = 36*1.5
+    minorfontsize = 24*1.5
+    ax = Axis(fig[1,1][1,1],
+        xticks=(range(-pi,pi,step=0.5pi), [L"$-\pi$ ", L"-\pi/2", L"0", L"\pi/2", L"$\pi$ "]),
+        # title=L"u^\top R u", titlesize=majorfontsize, 
+        xlabel=L"Pendulum angle $q_1$ (radians)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
+        ylabel=L"Rotor angle $q_2$ (radians)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
+        xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
+        yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
+    )
+    ct = contour!(ax,
         X,Y,(x,y)->pbc[:Vd]([x;y],θ)[1],
         # color=:black,
-        # levels=20,
-        levels=[0,1,10,20,40,60,80,100,120],
+        colormap=:rust,
+        linewidth=1.5,
+        enable_depth=false,
+        levels=10,
+        # levels=vcat(0,1,3,20,100, 200, 600, 1000, 2000)
     )
-    Colorbar(fig[1,1][1,2], ct)
-    save("plots/Vd.png", fig)
+    # Colorbar(fig[1,1][1,2], ct,
+    #     ticklabelfont="CMU Serif", ticklabelsize=30)
+    save("plots/idapbc_Vd.png", fig)
+    save("plots/idapbc_Vd.eps", fig)
     fig
 end
