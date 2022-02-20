@@ -40,8 +40,8 @@ function eom!(dx,x,u)
     q1, q2, q1dot, q2dot = x
     dx[1] = q1dot
     dx[2] = q2dot
-    dx[3] = m3*sin(q1)/I1 - u/I1 - b1*q1dot/I1
-    dx[4] = u/(I2/2) - b2*q2dot/(I2/2)
+    dx[3] = m3*sin(q1)/I1 - u/I1 - 1/5*b1*q1dot/I1
+    dx[4] = u/(I2/2) - 1/10*b2*q2dot/(I2/2)
 end
 function eom(x,u)
     dx = similar(x)

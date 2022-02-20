@@ -32,9 +32,9 @@ function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum,
     ::IDAPBCVariants{:Chain}
 )
     # Md⁻¹ = PSDMatrix(2, ()->[4.688072309384954 0.5; 0.5 15.339299776947408])
-    Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
+    # Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
     # Md⁻¹ = PSDMatrix(2, ()->[82.47221754422259 0.0; 81.64365569190376 0.9900262236663507])
-    # Md⁻¹ = PSDMatrix(2, ()->randn(4))
+    Md⁻¹ = PSDMatrix(2, ()-> 1 ./ MLBasedESC.Flux.glorot_uniform(4))
     # Md⁻¹ = Md⁻¹_groundtruth
     # Md⁻¹ = FastChain(
     #     FastDense(2, 8, elu; bias=true),
@@ -43,9 +43,10 @@ function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum,
     # )
     Vd = FastChain(
         # inmap, FastDense(4, 10, tanh; bias=false),
-        FastDense(2, 10, elu; bias=false),
-        FastDense(10, 5, elu; bias=false),
-        FastDense(5, 1, square; bias=false),
+        FastDense(2, 8, tanh; bias=false),
+        FastDense(8, 16, tanh; bias=false),
+        FastDense(16, 4, tanh; bias=false),
+        FastDense(4, 1, square; bias=false),
     )
     # Vd = SOSPoly(2, 1:1)
     P = IDAPBCProblem(2,M⁻¹,Md⁻¹,V,Vd,G,G⊥)
@@ -92,9 +93,9 @@ end
 function train!(P::IDAPBCProblem, ps; dq=0.1, kwargs...)
     L1 = PDELossPotential(P)
     L2 = PDELossKinetic(P)
-    # data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in -2pi:pi/10:2pi) |> collect
+    # data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi) |> collect
     # data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in -10pi:pi/2:10pi)
-    data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in range(-20,20,length=81)) |> collect
+    data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in range(-50,50,length=101)) |> collect
     # data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi)
     append!(data, [q1,q2] for q1 in -pi/4:pi/40:pi/4 for q2 in -pi/4:pi/40:pi/4)
     # optimize!(L2,ps,collect(data);kwargs...)
@@ -105,9 +106,12 @@ end
 function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
     u_idapbc(x,p) = begin
         xbar = [rem2pi.(x[1:2], RoundNearest); x[3:end]]
+        # xbar = [x[1]; x[2]; x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
         if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
+            # xbar[1] = sin(q1)
+            # xbar[2] = sin(q2)
             effort = -dot(LQR, xbar)
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -231,10 +235,14 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
             # x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=40.0)
             # x, u = evaluate(pbc, θ, kv=2.5e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0)
             # x, u = evaluate(pbc, θ, kv=10, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
-            x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
+            # x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
             # x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=40.0) # publications/idapbc_uru.bson
+            x, u = evaluate(pbc, θ, kv=4e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0) # publications/idapbc_tanh_Vd.bson
             Z[ix,iy] = sum(abs2,u)
-            if abs(x[3,end]) > 1e-2
+            q1 = x[1,end]
+            q1dot = x[3,end]
+            if !(1-cos(q1) < 1-cosd(20)) && !(abs(q1dot) < 5)
+                @show (q1, q1dot)
                 push!(D, (ix,iy))
             end
         end
@@ -261,8 +269,8 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
         # yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
     )
     hm = heatmap!(ax_hm, X,Y,Z, colormap=:RdPu_4, 
-        # colorrange=(0.0,120),
-        colorrange=(0.0,2000), # TruthIDAPBC
+        colorrange=(0.0,200),
+        # colorrange=(0.0,2000), # TruthIDAPBC
     )
     Colorbar(fig[1,1][1,2], hm, 
         # label="(× 1E+04)", labelsize=30, 
@@ -278,9 +286,9 @@ function plot_Vd(pbc::IDAPBCProblem, θ)
     fig = Figure()
     N = 201
     X = range(-pi, pi, step=pi/100)
-    # Y = range(-2pi, 2pi, step=pi/50)
+    Y = range(-4pi, 4pi, step=pi/100)
     # X = range(-2pi, 2pi, step=pi/50)
-    Y = range(-20, 20, length=N)
+    # Y = range(-20, 20, length=N)
     majorfontsize = 36*1.5
     minorfontsize = 24*1.5
     ax = Axis(fig[1,1][1,1],
@@ -297,7 +305,7 @@ function plot_Vd(pbc::IDAPBCProblem, θ)
         colormap=:rust,
         linewidth=1.5,
         enable_depth=false,
-        levels=10,
+        levels=5,
         # levels=vcat(0,1,3,20,100, 200, 600, 1000, 2000)
     )
     # Colorbar(fig[1,1][1,2], ct,
