@@ -1,11 +1,29 @@
 export neuralpbc_system, setup_problem, trainloss, train!
 export evaluate, plot
 
+function zeroshift(q::AbstractVector, ::Any=nothing)
+    return [
+        q[1]
+        1-q[2]
+        q[3]
+        1-q[4]
+        q[5]
+        q[6]
+    ]
+end
+function MLBasedESC.jacobian(::typeof(zeroshift), q,::Any=nothing)
+    diagm([1,-1,1,-1,1,1])
+end
+
 function MLBasedESC.NeuralPBC(::ReactionWheelPendulum)
     Hd = FastChain(
-        FastDense(6, 10, elu, bias=true),
-        FastDense(10, 5, elu, bias=true),
-        FastDense(5, 1, bias=true)
+        # FastDense(6, 10, elu, bias=true),
+        # FastDense(10, 5, elu, bias=true),
+        # FastDense(5, 1, bias=true)
+        zeroshift,
+        FastDense(6, 18, tanh, bias=false),
+        FastDense(18, 12, tanh, bias=false),
+        FastDense(12, 1, square, bias=false)
     )
     return NeuralPBC(6,Hd)
 end
@@ -13,7 +31,7 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
+        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < pi
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -39,7 +57,7 @@ end
 function saveweights(pbc::NeuralPBC, ps)
     filename = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
     parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
-    !isdir(parentdir) && run(`mkdir $parentdir`)
+    !isdir(parentdir) && run(`mkdir -p $parentdir`)
     struct_filepath = parentdir * filename * "_pbc.bson"
     weight_filepath = parentdir * filename * "_ps.bson"
     BSON.@save struct_filepath pbc
@@ -51,21 +69,24 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
     tf=3.0, dt=0.1, umax=1.0, lqrmax=1.5,
     batchsize=4, maxiters=1000, replaybuffer=5
 )
-    # sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
-    sys = ParametricControlSystem{false}(
-        eomwrap, (x,θ)->pbc(x,θ), 6
-    )
+    sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
+    # sys = ParametricControlSystem{false}(
+    #     eomwrap, (x,θ)->pbc(x,θ), 6
+    # )
     dist(x) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
         return 4(1-cq1) + (q1dot^2)/4 + (q2dot^2)/10
     end
     loss = SetDistanceLoss(dist, wrap(zeros(4)), 1/100)
+    loss_tspan = range(tf/2, tf, step=dt)
     losstypestr = typeof(loss).name.name |> string
-    tspan = (tf/2, tf) # (zero(tf), tf)
+    tspan = (zero(tf), tf)
     prob = ODEProblem(sys, ps, tspan)
     optimizer = Flux.ADAM()
     sampler(batchsize, ps) = customdagger(prob, batchsize, ps, tf=tf)
     data = reduce(vcat, sampler(batchsize, ps) for _=1:replaybuffer)
+    push!(data, wrap([pi,0,0,0]))
+    push!(data, wrap([-pi,0,0,0]))
     lastsave = Dates.now()
     for nepoch in 1:maxiters
         data = vcat(last(data,(replaybuffer-1)*batchsize), sampler(batchsize, ps))
@@ -74,7 +95,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
         epochloss = 0
         nbatch = 1
         for batch in dataloader
-            gs, ls = gradient(loss, prob, batch, ps; dt=dt)
+            gs, ls = gradient(loss, prob, batch, ps; dt=loss_tspan)
             epochloss = +(epochloss, ls)
             if !isnothing(gs) && !any(isnan, gs)
                 # gs[end-6+1:end] .= 0
@@ -150,21 +171,21 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
     return fig
 end
 function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
-    # evolution = evaluate(pbc, θ; kwargs...)
-    traj, _ = evaluate(pbc, θ; kwargs...)
-    ham = map(eachcol(traj)) do x0
-        x0bar = wrap(x0) 
-        pbc.Hd(x0bar, θ)[1]
-    end
-    evolution = (traj, ham)
+    evolution = evaluate(pbc, θ; kwargs...)
+    # traj, _ = evaluate(pbc, θ; kwargs...)
+    # ham = map(eachcol(traj)) do x0
+    #     x0bar = wrap(x0) 
+    #     pbc.Hd(x0bar, θ)[1]
+    # end
+    # evolution = (traj, ham)
     fig = plot(evolution, out=false)
     X = range(-pi, pi, length=50)
     Y = range(-pi, pi, length=50)
     Z = zeros(50,50)
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
-            # x = wrap([X[ix],Y[iy],0,0])
-            x = wrap([X[ix],0,Y[iy],0])
+            x = wrap([X[ix],Y[iy],0,0])
+            # x = wrap([X[ix],0,Y[iy],0])
             Z[ix,iy] = pbc.Hd(x,θ)[1]
         end
     end

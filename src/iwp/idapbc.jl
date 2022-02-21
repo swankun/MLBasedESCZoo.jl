@@ -34,7 +34,8 @@ function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum,
     # Md⁻¹ = PSDMatrix(2, ()->[4.688072309384954 0.5; 0.5 15.339299776947408])
     # Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
     # Md⁻¹ = PSDMatrix(2, ()->[82.47221754422259 0.0; 81.64365569190376 0.9900262236663507])
-    Md⁻¹ = PSDMatrix(2, ()-> 1 ./ MLBasedESC.Flux.glorot_uniform(4))
+    initps = 1 ./ MLBasedESC.Flux.glorot_uniform(4)
+    Md⁻¹ = PSDMatrix(2, ()-> initps)
     # Md⁻¹ = Md⁻¹_groundtruth
     # Md⁻¹ = FastChain(
     #     FastDense(2, 8, elu; bias=true),
