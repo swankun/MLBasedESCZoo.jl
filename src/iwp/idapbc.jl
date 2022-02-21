@@ -110,15 +110,15 @@ function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
         # xbar = [x[1]; x[2]; x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
-        if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
-            # xbar[1] = sin(q1)
-            # xbar[2] = sin(q2)
-            effort = -dot(LQR, xbar)
-            return clamp(effort, -lqrmax, lqrmax)
-        else
+        # if (1-cos(q1) < 1-cosd(10)) && abs(q1dot) < pi/4
+        #     # xbar[1] = sin(q1)
+        #     # xbar[2] = sin(q2)
+        #     effort = -dot(LQR, xbar)
+        #     return clamp(effort, -lqrmax, lqrmax)
+        # else
             effort = controller(P,xbar,p,kv=kv)
             return clamp(effort, -umax, umax)
-        end
+        # end
     end
 end
 
@@ -285,11 +285,11 @@ end
 
 function plot_Vd(pbc::IDAPBCProblem, θ)
     fig = Figure()
-    N = 201
+    N = 101
     X = range(-pi, pi, step=pi/100)
-    Y = range(-4pi, 4pi, step=pi/100)
+    # Y = range(-4pi, 4pi, step=pi/100)
     # X = range(-2pi, 2pi, step=pi/50)
-    # Y = range(-20, 20, length=N)
+    Y = range(-50, 50, length=N)
     majorfontsize = 36*1.5
     minorfontsize = 24*1.5
     ax = Axis(fig[1,1][1,1],
@@ -306,11 +306,12 @@ function plot_Vd(pbc::IDAPBCProblem, θ)
         colormap=:rust,
         linewidth=1.5,
         enable_depth=false,
-        levels=5,
+        # levels=5,
+        levels=vcat(0,0.0001/2,0.01,0.1),
         # levels=vcat(0,1,3,20,100, 200, 600, 1000, 2000)
     )
-    # Colorbar(fig[1,1][1,2], ct,
-    #     ticklabelfont="CMU Serif", ticklabelsize=30)
+    Colorbar(fig[1,1][1,2], ct,
+        ticklabelfont="CMU Serif", ticklabelsize=30)
     save("plots/idapbc_Vd.png", fig)
     save("plots/idapbc_Vd.eps", fig)
     fig
