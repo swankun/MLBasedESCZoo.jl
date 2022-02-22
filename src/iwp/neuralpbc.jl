@@ -17,13 +17,13 @@ end
 
 function MLBasedESC.NeuralPBC(::ReactionWheelPendulum)
     Hd = FastChain(
-        # FastDense(6, 10, elu, bias=true),
-        # FastDense(10, 5, elu, bias=true),
-        # FastDense(5, 1, bias=true)
-        zeroshift,
-        FastDense(6, 18, tanh, bias=false),
-        FastDense(18, 12, tanh, bias=false),
-        FastDense(12, 1, square, bias=false)
+        FastDense(6, 10, elu, bias=true),
+        FastDense(10, 5, elu, bias=true),
+        FastDense(5, 1, bias=true)
+        # zeroshift,
+        # FastDense(6, 18, tanh, bias=false),
+        # FastDense(18, 12, tanh, bias=false),
+        # FastDense(12, 1, square, bias=false)
     )
     return NeuralPBC(6,Hd)
 end
@@ -31,7 +31,7 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < pi
+        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < pi
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -55,9 +55,11 @@ function MLBasedESC.ParametricControlSystem(::ReactionWheelPendulum,
 end
 
 function saveweights(pbc::NeuralPBC, ps)
-    filename = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
-    parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
-    !isdir(parentdir) && run(`mkdir -p $parentdir`)
+    # filename = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
+    # parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
+    # !isdir(parentdir) && run(`mkdir -p $parentdir`)
+    parentdir = "src/iwp/models/"
+    filename = "neuralpbc_20220221"
     struct_filepath = parentdir * filename * "_pbc.bson"
     weight_filepath = parentdir * filename * "_ps.bson"
     BSON.@save struct_filepath pbc
@@ -165,8 +167,10 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
         Axis(fig[ij...], title=xstr)
         lines!(t, x)
     end
-    Axis(fig[3,1], title="control")
-    lines!(t, ctrl)
+    # Axis(fig[3,1], title="control")
+    # lines!(t, ctrl)
+    Axis(fig[3,1], title="Phase space")
+    lines!(traj[1,:], traj[3,:])
     out && save("plots/out.png", fig)
     return fig
 end
@@ -204,6 +208,17 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     return fig
 end
 
+function contour_Hd_bayesian()
+    Hd = FastChain(
+        FastDense(6, 3, elu),
+        FastDense(3, 3, elu),
+        FastDense(3, 1)
+    )
+    pbc = NeuralPBC(6,Hd)
+    raw = BSON.load("/tmp/normalm3_with1_1_4.bson")
+    ps = raw[:hα]
+    contour_Hd(pbc, ps)
+end
 function contour_Hd(pbc::NeuralPBC, θ)
     N = 101
     X = range(-pi, pi, length=N)
@@ -211,8 +226,8 @@ function contour_Hd(pbc::NeuralPBC, θ)
     Z = zeros(N,N)
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
-            # x = wrap([X[ix],Y[iy],0,0])
             x = wrap([X[ix],Y[iy],0,0])
+            # x = wrap([X[ix],0,Y[iy],0])
             Z[ix,iy] = pbc.Hd(x,θ)[1]
         end
     end
@@ -236,7 +251,8 @@ function contour_Hd(pbc::NeuralPBC, θ)
     )
     # tightlimits!(ax)
     ct = contour!(X,Y,Z, colormap=:grays, linewidth=2.0,
-        levels=8
+        levels=10
+        # levels=[0,0.001,0.005,0.01,0.05,0.1,1,10,100]
     )
     # Colorbar(fig[1,1][1,2], ct)
     save("plots/neuralpbc_contour.eps", fig)
@@ -244,26 +260,32 @@ function contour_Hd(pbc::NeuralPBC, θ)
 end
 
 function plot_uru(pbc::NeuralPBC, θ; out=true)
-    N = 51
+    # ps = BSON.load("src/iwp/models/neuralpbc_20211228.bson")[:ps]
+    # ps = BSON.load("src/iwp/models/neuralpbc_20220124.bson")[:ps]
+    N = 21
     X = range(-pi, pi, length=N)
     Y = range(-pi, pi, length=N)
     Z = zeros(N,N)
     D = Vector{Tuple{Int,Int,Matrix{Float64}}}()
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
-            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=0.25, lqrmax=1.5, tf=60.0)
+            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=2.0, tf=60.0)
             Z[ix,iy] = sum(abs2,u)
-            if abs(x[3,end]) > 1e-2
+            q1 = x[1,end]
+            q1dot = x[3,end]
+            if !(1-cos(q1) < 1-cosd(20)) && !(abs(q1dot) < 5)
+                @warn "Failed to catch x0=$([X[ix],0,Y[iy],0]). Terminal state xf=$(x[:,end])."
                 push!(D, (ix,iy,x))
             end
         end
     end
-    Zbar = maximum(Z)
+    @show Zbar = maximum(Z)
+    @show length(D)
     for d in D
         ix, iy, x = d
-        x0 = (X[ix], Y[iy])
-        @show x0
-        @show x[:,end]
+        # x0 = (X[ix], Y[iy])
+        # @show x0
+        # @show x[:,end]
         Z[ix,iy] = Zbar
     end
     
@@ -276,7 +298,7 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
         # xticks=(range(-pi,pi,step=0.5pi), ["-π", "-π/2", "0", "π/2", "π"]),
         xticks=piticks(0.5),
         yticks=-3:1:3,
-        # title=L"u^\top R u", 
+        title=L"u^\top R u", 
         # titlesize=majorfontsize, 
         # xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
         # ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
@@ -285,7 +307,7 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
     )
     hm = heatmap!(ax_hm, X,Y,Z, 
         colormap=:RdPu_4, 
-        # colorrange=(0.0,20.0)
+        colorrange=(0.0,20.0)
     )
     Colorbar(fig[1,1][1,2], hm, 
         # label=L"u^\top Ru", labelsize=30, 
@@ -295,3 +317,11 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
     out && save("plots/uRu.svg", fig)
     return fig
 end
+
+function Hd_q1(pbc::NeuralPBC, ps)
+    fig = Figure()
+    ax = Axis(fig[1,1])
+    lines!(-pi:pi/50:pi, (x)->pbc.Hd(wrap([x,0,0,0]), ps)[1])
+    lines!(-pi:pi/50:pi, (x)->Vd_groundtruth([x,0,0,0], ps)[1])
+    save("plots/out.png", fig)
+end 

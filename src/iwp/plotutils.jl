@@ -46,6 +46,6 @@ function pilabel(n)
     iszero(n) && return "0"
     isone(n) && return "π"
     isone(-n) && return "-π"
-    return "$nπ"
+    return "$(n)π"
 end
 piticks(step, max=1) = (range(-max*pi, max*pi,step=step*pi), map(pitexlabel, -max:step:max)) 

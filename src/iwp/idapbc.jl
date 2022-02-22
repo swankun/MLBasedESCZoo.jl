@@ -110,15 +110,15 @@ function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
         # xbar = [x[1]; x[2]; x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
-        # if (1-cos(q1) < 1-cosd(10)) && abs(q1dot) < pi/4
-        #     # xbar[1] = sin(q1)
-        #     # xbar[2] = sin(q2)
-        #     effort = -dot(LQR, xbar)
-        #     return clamp(effort, -lqrmax, lqrmax)
-        # else
+        if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
+            # xbar[1] = sin(q1)
+            # xbar[2] = sin(q2)
+            effort = -dot(LQR, xbar)
+            return clamp(effort, -lqrmax, lqrmax)
+        else
             effort = controller(P,xbar,p,kv=kv)
             return clamp(effort, -umax, umax)
-        # end
+        end
     end
 end
 
@@ -226,7 +226,7 @@ end
 plot_uru(::IDAPBCVariants{:Truth}) = plot_uru(IDAPBCProblem(ReactionWheelPendulum(), TruthIDAPBC)...)
 plot_uru(::IDAPBCVariants{:Chain}) = plot_uru(loadidapbc("src/iwp/models/publications/idapbc_uru.bson")...)
 function plot_uru(pbc::IDAPBCProblem, θ; out=true)
-    N = 51
+    N = 21
     X = range(-pi, pi, length=N)
     Y = range(-pi, pi, length=N)
     Z = zeros(N,N)
@@ -237,13 +237,13 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
             # x, u = evaluate(pbc, θ, kv=2.5e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0)
             # x, u = evaluate(pbc, θ, kv=10, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
             # x, u = evaluate(pbc, θ, umax=3.0, kv=5e-2, x0=[X[ix],0,Y[iy],0], tf=40.0)   # TruthIDAPBC
-            # x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=40.0) # publications/idapbc_uru.bson
-            x, u = evaluate(pbc, θ, kv=4e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0) # publications/idapbc_tanh_Vd.bson
+            x, u = evaluate(pbc, θ, kv=1.5e-2, x0=[X[ix],0,Y[iy],0], umax=3.0, tf=20.0) # publications/idapbc_uru.bson
+            # x, u = evaluate(pbc, θ, kv=4e-3, x0=[X[ix],0,Y[iy],0], umax=1.0, tf=40.0) # publications/idapbc_tanh_Vd.bson (I2=0.5I2)
             Z[ix,iy] = sum(abs2,u)
             q1 = x[1,end]
             q1dot = x[3,end]
             if !(1-cos(q1) < 1-cosd(20)) && !(abs(q1dot) < 5)
-                @show (q1, q1dot)
+                @warn "Failed to catch with q0 = $((q1, q1dot))."
                 push!(D, (ix,iy))
             end
         end
@@ -316,3 +316,16 @@ function plot_Vd(pbc::IDAPBCProblem, θ)
     save("plots/idapbc_Vd.eps", fig)
     fig
 end
+
+function Hd_q1(pbc::IDAPBCProblem, ps)
+    fig = Figure()
+    ax1 = Axis(fig[1, 1], yticklabelcolor = :blue,
+        topspinevisible = true, rightspinevisible = true,
+        xticks=piticks(0.5))
+    ax2 = Axis(fig[1, 1], yticklabelcolor = :red, yaxisposition = :right)
+    hidespines!(ax2)
+    hidexdecorations!(ax2)
+    lines!(ax1, -pi:pi/50:pi, (x)->hamiltoniand(pbc, [x,0,0,0], ps)[1], color=:blue)
+    lines!(ax2, -pi:pi/50:pi, (x)->Vd_groundtruth([x,0], ps)[1], color=:red)
+    save("plots/out.png", fig)
+end 
