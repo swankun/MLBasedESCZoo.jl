@@ -31,7 +31,7 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < pi
+        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < 5
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -59,11 +59,9 @@ function saveweights(pbc::NeuralPBC, ps)
     # parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
     # !isdir(parentdir) && run(`mkdir -p $parentdir`)
     parentdir = "src/iwp/models/"
-    filename = "neuralpbc_20220221"
-    struct_filepath = parentdir * filename * "_pbc.bson"
-    weight_filepath = parentdir * filename * "_ps.bson"
-    BSON.@save struct_filepath pbc
-    BSON.@save weight_filepath ps
+    filename = "neuralpbc_1ring_00"
+    weight_filepath = parentdir * filename * ".bson"
+    BSON.@save weight_filepath pbc ps
 end
 
 
@@ -110,7 +108,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
                     x0=unwrap(first(batch)));
             end
         end
-        if Dates.now()-lastsave > Minute(1)
+        if Dates.now()-lastsave > Minute(10)
             saveweights(pbc, ps)
             lastsave = Dates.now()
         end
@@ -131,9 +129,9 @@ function customdagger(prob, n, θ; tf=last(prob.tspan))
     if rand(Bool)
         return map(wrap, eachcol(rand(D,n)))
     else
-        xinit = rand(D)/2
-        xinit[1:2] *= pi
-        xinit[3] = clamp(xinit[3], -pi, pi)
+        xinit = rand(D)
+        xinit[1:2] *= pi/2
+        xinit[3:4] .= 0
         x0 = wrap(xinit)
         tspan = (zero(tf), tf)
         tsave = range(first(tspan), last(tspan), length=n)
@@ -167,10 +165,10 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
         Axis(fig[ij...], title=xstr)
         lines!(t, x)
     end
-    # Axis(fig[3,1], title="control")
-    # lines!(t, ctrl)
-    Axis(fig[3,1], title="Phase space")
-    lines!(traj[1,:], traj[3,:])
+    Axis(fig[3,1], title="control")
+    lines!(t, ctrl)
+    # Axis(fig[3,1], title="Phase space")
+    # lines!(traj[1,:], traj[3,:])
     out && save("plots/out.png", fig)
     return fig
 end
