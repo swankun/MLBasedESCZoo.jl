@@ -42,12 +42,17 @@ function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum,
     #     FastDense(8, 4; bias=true),
     #     MLBasedESC.posdef
     # )
+    # Vd = FastChain(
+    #     # inmap, FastDense(4, 10, tanh; bias=false),
+    #     FastDense(2, 8, tanh; bias=false),
+    #     FastDense(8, 16, tanh; bias=false),
+    #     FastDense(16, 4, tanh; bias=false),
+    #     FastDense(4, 1, square; bias=false),
+    # )
     Vd = FastChain(
-        # inmap, FastDense(4, 10, tanh; bias=false),
-        FastDense(2, 8, tanh; bias=false),
-        FastDense(8, 16, tanh; bias=false),
-        FastDense(16, 4, tanh; bias=false),
-        FastDense(4, 1, square; bias=false),
+        FastDense(2, 8, elu, bias=false),
+        FastDense(8, 4, elu, bias=false),
+        FastDense(4, 1, square, bias=false),
     )
     # Vd = SOSPoly(2, 1:1)
     P = IDAPBCProblem(2,M⁻¹,Md⁻¹,V,Vd,G,G⊥)
@@ -83,10 +88,9 @@ function saveidapbc(P, θ, file)
         Mdinv = quote
             PSDMatrix(2, ()->$(θ[1:4]))
         end,
-        # Mdinv = :( Md⁻¹_groundtruth ),
         Vd = Meta.parse(vds),
         θ = θ,
-        Kv = 2e-3
+        Kv = 0.10
     )
     BSON.@save file idapbc
 end
@@ -95,12 +99,13 @@ function train!(P::IDAPBCProblem, ps; dq=0.1, kwargs...)
     L1 = PDELossPotential(P)
     L2 = PDELossKinetic(P)
     # data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi) |> collect
-    # data = ([q1,q2] for q1 in -2pi:pi/5:2pi for q2 in -10pi:pi/2:10pi)
-    data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in range(-50,50,length=101)) |> collect
-    # data = ([q1,q2] for q1 in -pi:pi/10:pi for q2 in -pi:pi/10:pi)
-    append!(data, [q1,q2] for q1 in -pi/4:pi/40:pi/4 for q2 in -pi/4:pi/40:pi/4)
+    data = ([q1,q2] for q1 in -4pi:pi/10:4pi for q2 in -20pi:pi/10:20pi) |> collect
+    # data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in range(-50,50,length=101)) |> collect
+    # data = ([q1,q2] for q1 in -pi:pi/20:pi for q2 in -pi:pi/20:pi) |> collect
+    # data = ([q1,q2] for q1 in -2pi:pi/20:2pi for q2 in range(-50pi,50pi,length=201)) |> collect
+    append!(data, [q1,q2] for q1 in -pi/2:pi/40:pi/2 for q2 in -pi/2:pi/40:pi/2)
+    optimize!(L1,ps,data;kwargs...)
     # optimize!(L2,ps,collect(data);kwargs...)
-    optimize!(L1,ps,collect(data);kwargs...)
 end
 
 
@@ -110,9 +115,9 @@ function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
         # xbar = [x[1]; x[2]; x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
-        if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
-            # xbar[1] = sin(q1)
-            # xbar[2] = sin(q2)
+        if (1-cos(q1) < 1-cosd(15)) && abs(q1dot) < pi
+            xbar[1] = sin(q1)
+            xbar[2] = sin(q2)
             effort = -dot(LQR, xbar)
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -162,7 +167,7 @@ function plot(pbc::IDAPBCProblem, θ; out=true, kwargs...)
     # Hd = map(x->pbc.Hd(wrap(x),θ)[1], eachcol(first(evolution)))
     # t = range(0, 1, length=size(evolution[1],2))
     # lines!(t, Hd)
-    out && save("plots/out.png", fig)
+    out && save("plots/idapbcout.png", fig)
     return fig
 end
 
@@ -306,8 +311,8 @@ function plot_Vd(pbc::IDAPBCProblem, θ)
         colormap=:rust,
         linewidth=1.5,
         enable_depth=false,
-        # levels=5,
-        levels=vcat(0,0.0001/2,0.01,0.1),
+        levels=30,
+        # levels=vcat(0,0.0001/2,0.01,0.1),
         # levels=vcat(0,1,3,20,100, 200, 600, 1000, 2000)
     )
     Colorbar(fig[1,1][1,2], ct,
