@@ -17,9 +17,9 @@ end
 
 function MLBasedESC.NeuralPBC(::ReactionWheelPendulum)
     Hd = FastChain(
-        FastDense(6, 10, elu, bias=true),
-        FastDense(10, 5, elu, bias=true),
-        FastDense(5, 1, bias=true)
+        FastDense(6, 12, elu, bias=true),
+        FastDense(12, 4, elu, bias=true),
+        FastDense(4, 1, bias=true)
         # zeroshift,
         # FastDense(6, 18, tanh, bias=false),
         # FastDense(18, 12, tanh, bias=false),
@@ -59,14 +59,14 @@ function saveweights(pbc::NeuralPBC, ps)
     # parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
     # !isdir(parentdir) && run(`mkdir -p $parentdir`)
     parentdir = "src/iwp/models/"
-    filename = "neuralpbc_1ring_00"
+    filename = "neuralpbc_1ring_candidate"
     weight_filepath = parentdir * filename * ".bson"
     BSON.@save weight_filepath pbc ps
 end
 
 
 function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps; 
-    tf=3.0, dt=0.1, umax=1.0, lqrmax=1.5,
+    tf=3.0, dt=0.1, umax=2.0, lqrmax=3.0,
     batchsize=4, maxiters=1000, replaybuffer=5
 )
     sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
@@ -75,7 +75,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
     # )
     dist(x) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        return 4(1-cq1) + (q1dot^2)/4 + (q2dot^2)/10
+        return 4(1-cq1) + (q1dot^2)/4 + (q2dot^2)/5
     end
     loss = SetDistanceLoss(dist, wrap(zeros(4)), 1/100)
     loss_tspan = range(tf/2, tf, step=dt)
@@ -98,7 +98,6 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
             gs, ls = gradient(loss, prob, batch, ps; dt=loss_tspan)
             epochloss = +(epochloss, ls)
             if !isnothing(gs) && !any(isnan, gs)
-                # gs[end-6+1:end] .= 0
                 Flux.Optimise.update!(optimizer, ps, gs)
             end
             MLBasedESC.bstatus(nbatch, max_batch, ls)
