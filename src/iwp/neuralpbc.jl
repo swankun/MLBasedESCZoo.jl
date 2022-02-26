@@ -18,8 +18,8 @@ end
 function MLBasedESC.NeuralPBC(::ReactionWheelPendulum)
     Hd = FastChain(
         FastDense(6, 12, elu, bias=true),
-        FastDense(12, 4, elu, bias=true),
-        FastDense(4, 1, bias=true)
+        FastDense(12, 3, elu, bias=true),
+        FastDense(3, 1, bias=true)
         # zeroshift,
         # FastDense(6, 18, tanh, bias=false),
         # FastDense(18, 12, tanh, bias=false),
@@ -31,7 +31,7 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(15)) && abs(q1dot) < 5
+        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
             effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
             return clamp(effort, -lqrmax, lqrmax)
         else
@@ -168,7 +168,7 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
     lines!(t, ctrl)
     # Axis(fig[3,1], title="Phase space")
     # lines!(traj[1,:], traj[3,:])
-    out && save("plots/out.png", fig)
+    out && save("plots/out3.png", fig)
     return fig
 end
 function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
@@ -201,7 +201,7 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     # Hd = map(x->pbc.Hd(wrap(x),θ)[1], eachcol(first(evolution)))
     # t = range(0, 1, length=size(evolution[1],2))
     # lines!(t, Hd)
-    out && save("plots/out.png", fig)
+    out && save("plots/out3.png", fig)
     return fig
 end
 

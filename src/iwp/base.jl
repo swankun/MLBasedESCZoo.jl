@@ -17,12 +17,12 @@ ml = 0.183 - mr_old*lr + mr_new*lr
 const I1 = 0.03401
 const I2 = 0.001405
 const m3 = 0.1162*9.81
-const b1 = 1/1000 #2.5/1000
-const b2 = 5/1000  #5/1000
+const b1 = 5/1000 #2.5/1000
+const b2 = 1/100  #5/1000
 const M⁻¹ = inv(diagm([I1, I2]))
 const G = [-1.0, 1.0]
 const G⊥ = [1.0 1.0]
-const LQR = [-9.768339971539689, -0.23717082451002214, -1.6651087226261554, -0.035028949998149844]
+const LQR = [-3.8150228674227527, -0.010000000000018733, -0.6570687716257183, -0.0065154336851863896]
 
 function inmap(q,::Any=nothing)
     return [
@@ -42,12 +42,27 @@ function MLBasedESC.jacobian(::typeof(inmap), q,::Any=nothing)
     ]
 end
 
+rpm2rads(rpm) = rpm * 1 / 60 * 2 * pi
+
+function friction_model(velocity)
+    # mathworks.com/help/physmod/simscape/ref/translationalfriction.html
+    Fbrk = 0.42*0.23 # observed from motor driver -- 0.42 amps
+    Fc = 0.67*Fbrk
+    breakaway_vel = rpm2rads(1)
+    stribeck_vel = breakaway_vel*sqrt(2)
+    coulomb_vel = breakaway_vel/10
+    f_viscous = b2*velocity
+    f_coulumb = Fc*tanh(velocity/coulomb_vel)
+    f_stribeck = sqrt(2*exp(1)) * (Fbrk - Fc) * exp(-(velocity/stribeck_vel)^2) * velocity/stribeck_vel
+    return f_viscous + f_coulumb + f_stribeck
+end
+
 function eom!(dx,x,u)
     q1, q2, q1dot, q2dot = x
     dx[1] = q1dot
     dx[2] = q2dot
     dx[3] = m3*sin(q1)/I1 - u/I1 - b1*q1dot/I1
-    dx[4] = u/I2 - b2*q2dot/I2
+    dx[4] = u/I2 - friction_model(q2dot)/I2
 end
 function eom(x,u)
     dx = similar(x)
@@ -66,7 +81,7 @@ function eomwrap!(dx,x,u)
     dx[3] = cq2*q2dot - ϵ*sq2*(sq2^2 + cq2^2 - 1)
     dx[4] = -sq2*q2dot - ϵ*cq2*(sq2^2 + cq2^2 - 1)
     dx[5] = m3bar*sq1/I1bar - u/I1bar - b1*q1dot/I1bar
-    dx[6] = u/I2bar - b2*q2dot/I2bar
+    dx[6] = u/I2bar - friction_model(q2dot)/I2bar
 end
 function eomwrap(x,u)
     dx = similar(x)
