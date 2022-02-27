@@ -31,13 +31,21 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
-            effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
-            return clamp(effort, -lqrmax, lqrmax)
-        else
-            effort = P(x,p)
-            return clamp(effort, -umax, umax)
-        end
+        dist = norm([1-cq1, 0.5*q1dot/10])
+        # dist = 1 - cq1
+        eta0 = exp(-(5*dist)^2)
+        eta1 = 1 - eta0
+        lqr = -dot(LQR, [sq1, sq2, q1dot, q2dot])
+        swing = P(x,p)
+        effort = eta0*lqr + eta1*swing
+        return clamp(effort, -umax, umax)
+        # if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
+        #     effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
+        #     return clamp(effort, -lqrmax, lqrmax)
+        # else
+        #     effort = P(x,p)
+        #     return clamp(effort, -umax, umax)
+        # end
     end
 end
 
@@ -55,18 +63,18 @@ function MLBasedESC.ParametricControlSystem(::ReactionWheelPendulum,
 end
 
 function saveweights(pbc::NeuralPBC, ps)
-    # filename = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
-    # parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
-    # !isdir(parentdir) && run(`mkdir -p $parentdir`)
-    parentdir = "src/iwp/models/"
-    filename = "neuralpbc_1ring_candidate"
+    filename = Dates.format(Dates.now(), "yyyymmdd_HHMMSS")
+    parentdir = "/tmp/jl_MLBasedESCZoo/NeuralPBC/"
+    !isdir(parentdir) && run(`mkdir -p $parentdir`)
+    # parentdir = "src/iwp/models/"
+    # filename = "neuralpbc_1ring_candidate"
     weight_filepath = parentdir * filename * ".bson"
     BSON.@save weight_filepath pbc ps
 end
 
 
 function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps; 
-    tf=3.0, dt=0.1, umax=2.0, lqrmax=3.0,
+    tf=3.0, dt=0.1, umax=1.0, lqrmax=1.5,
     batchsize=4, maxiters=1000, replaybuffer=5
 )
     sys = ParametricControlSystem(ReactionWheelPendulum(), pbc, umax=umax, lqrmax=lqrmax)
@@ -83,7 +91,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
     tspan = (zero(tf), tf)
     prob = ODEProblem(sys, ps, tspan)
     optimizer = Flux.ADAM()
-    sampler(batchsize, ps) = customdagger(prob, batchsize, ps, tf=tf)
+    sampler(batchsize, ps) = customdagger(prob, batchsize, ps, tf=2tf)
     data = reduce(vcat, sampler(batchsize, ps) for _=1:replaybuffer)
     push!(data, wrap([pi,0,0,0]))
     push!(data, wrap([-pi,0,0,0]))
@@ -107,7 +115,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
                     x0=unwrap(first(batch)));
             end
         end
-        if Dates.now()-lastsave > Minute(10)
+        if Dates.now()-lastsave > Minute(1)
             saveweights(pbc, ps)
             lastsave = Dates.now()
         end
@@ -266,7 +274,10 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
     D = Vector{Tuple{Int,Int,Matrix{Float64}}}()
     Threads.@threads for ix in 1:length(X)
         for iy in 1:length(Y) 
-            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=2.0, tf=60.0)
+            if 1-cos(X[ix]) > 1-cosd(30) && abs(Y[iy]) > 5
+                continue
+            end
+            x, u = evaluate(pbc, θ, x0=[X[ix],0,Y[iy],0]; umax=2.0, tf=30.0)
             Z[ix,iy] = sum(abs2,u)
             q1 = x[1,end]
             q1dot = x[3,end]
@@ -304,7 +315,7 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
     )
     hm = heatmap!(ax_hm, X,Y,Z, 
         colormap=:RdPu_4, 
-        colorrange=(0.0,20.0)
+        # colorrange=(0.0,20.0)
     )
     Colorbar(fig[1,1][1,2], hm, 
         # label=L"u^\top Ru", labelsize=30, 
