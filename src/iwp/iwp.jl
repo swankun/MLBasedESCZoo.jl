@@ -15,9 +15,10 @@ import Flux
 import Flux.NNlib
 using Flux.NNlib: elu
 
+using DifferentialEquations
 using ForwardDiff
+using Interpolations
 using LinearAlgebra
-using OrdinaryDiffEq
 
 import Distributions, DistributionsAD, LogExpFunctions
 using Distributions
@@ -27,5 +28,6 @@ include("plotutils.jl")
 include("idapbc.jl")
 include("bayes_idapbc.jl")
 include("neuralpbc.jl")
+include("sde_evaluate.jl")
 
 end
