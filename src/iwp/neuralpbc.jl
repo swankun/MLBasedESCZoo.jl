@@ -176,7 +176,7 @@ function plot(evolution::Tuple{AbstractMatrix,AbstractVector}; out=true)
     lines!(t, ctrl)
     # Axis(fig[3,1], title="Phase space")
     # lines!(traj[1,:], traj[3,:])
-    out && save("plots/out3.png", fig)
+    out && save("plots/out.png", fig)
     return fig
 end
 function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
@@ -209,7 +209,7 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     # Hd = map(x->pbc.Hd(wrap(x),θ)[1], eachcol(first(evolution)))
     # t = range(0, 1, length=size(evolution[1],2))
     # lines!(t, Hd)
-    out && save("plots/out3.png", fig)
+    out && save("plots/out.png", fig)
     return fig
 end
 

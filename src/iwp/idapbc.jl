@@ -90,7 +90,7 @@ function saveidapbc(P, θ, file)
         end,
         Vd = Meta.parse(vds),
         θ = θ,
-        Kv = 0.10
+        Kv = 1.0
     )
     BSON.@save file idapbc
 end
@@ -103,7 +103,11 @@ function train!(P::IDAPBCProblem, ps; dq=0.1, kwargs...)
     # data = ([q1,q2] for q1 in -2pi:pi/10:2pi for q2 in range(-50,50,length=101)) |> collect
     # data = ([q1,q2] for q1 in -pi:pi/20:pi for q2 in -pi:pi/20:pi) |> collect
     # data = ([q1,q2] for q1 in -2pi:pi/20:2pi for q2 in range(-50pi,50pi,length=201)) |> collect
-    append!(data, [q1,q2] for q1 in -pi/2:pi/40:pi/2 for q2 in -pi/2:pi/40:pi/2)
+    append!(data, [q1,q2] for q1 in -pi/3:pi/30:pi/3 for q2 in -pi/3:pi/30:pi/3)
+    append!(data, [q1,0] for q1 in range(pi-pi/6, pi+pi/6, step=pi/30))
+    append!(data, [q1,0] for q1 in range(-pi-pi/6, -pi+pi/6, step=pi/30))
+    append!(data, [0,q2] for q2 in range(pi-pi/6, pi+pi/6, step=pi/30))
+    append!(data, [0,q2] for q2 in range(-pi-pi/6, -pi+pi/6, step=pi/30))
     optimize!(L1,ps,data;kwargs...)
     # optimize!(L2,ps,collect(data);kwargs...)
 end
@@ -111,8 +115,8 @@ end
 
 function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
     u_idapbc(x,p) = begin
-        # xbar = [rem2pi.(x[1:2], RoundNearest); x[3:end]]
-        xbar = [x[1]; x[2]; x[3:end]]
+        xbar = [rem2pi.(x[1:2], RoundNearest); x[3:end]]
+        # xbar = [x[1]; x[2]; x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
         if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
@@ -124,6 +128,15 @@ function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
             effort = controller(P,xbar,p,kv=kv)
             return clamp(effort, -umax, umax)
         end
+        # q1, q2, q1dot, q2dot = x
+        # dist = norm([1-cos(q1), 0.5*q1dot/10])
+        # # dist = 1 - cq1
+        # eta0 = exp(-(5*dist)^2)
+        # eta1 = 1 - eta0
+        # lqr = -dot(LQR, xbar)
+        # swing = controller(P,xbar,p)
+        # effort = eta0*lqr + eta1*swing
+        # return clamp(effort, -umax, umax)
     end
 end
 
@@ -291,10 +304,10 @@ end
 function plot_Vd(pbc::IDAPBCProblem, θ)
     fig = Figure()
     N = 101
-    X = range(-pi, pi, step=pi/100)
+    X = Y = range(-pi, pi, step=pi/100)
     # Y = range(-4pi, 4pi, step=pi/100)
     # X = range(-2pi, 2pi, step=pi/50)
-    Y = range(-50, 50, length=N)
+    # Y = range(-50, 50, length=N)
     majorfontsize = 36*1.5
     minorfontsize = 24*1.5
     ax = Axis(fig[1,1][1,1],
@@ -311,8 +324,8 @@ function plot_Vd(pbc::IDAPBCProblem, θ)
         colormap=:rust,
         linewidth=1.5,
         enable_depth=false,
-        levels=30,
-        # levels=vcat(0,0.0001/2,0.01,0.1),
+        # levels=30,
+        levels=vcat(0,0.0001/2,0.01,0.1),
         # levels=vcat(0,1,3,20,100, 200, 600, 1000, 2000)
     )
     Colorbar(fig[1,1][1,2], ct,
