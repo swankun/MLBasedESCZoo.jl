@@ -11,12 +11,12 @@ I1 = 0.0455 - mr_old*lr^2 + mr_new*lr^2
 I2 = 0.00425 - 4*9.484e-4 + 1*9.484e-4
 ml = 0.183 - mr_old*lr + mr_new*lr
 ======================================#
-# const I1 = 0.0455
-# const I2 = 0.00425
-# const m3 = 0.183*9.81
-const I1 = 0.03401
-const I2 = 0.001405
-const m3 = 0.1162*9.81
+const I1 = 0.0455
+const I2 = 0.00425
+const m3 = 0.183*9.81
+# const I1 = 0.03401
+# const I2 = 0.001405
+# const m3 = 0.1162*9.81
 const b1 = 5/1000 #2.5/1000
 const b2 = 1/100  #5/1000
 const M⁻¹ = inv(diagm([I1, I2]))
@@ -61,8 +61,8 @@ function eom!(dx,x,u)
     q1, q2, q1dot, q2dot = x
     dx[1] = q1dot
     dx[2] = q2dot
-    dx[3] = m3*sin(q1)/I1 - u/I1 - b1*q1dot/I1
-    dx[4] = u/I2 - friction_model(q2dot)/I2
+    dx[3] = m3*sin(q1)/I1 - u/I1# - b1*q1dot/I1
+    dx[4] = u/I2# - friction_model(q2dot)/I2
 end
 function eom(x,u)
     dx = similar(x)

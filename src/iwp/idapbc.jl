@@ -111,11 +111,11 @@ end
 
 function policyfrom(P::IDAPBCProblem; umax=Inf, lqrmax=Inf, kv=1)
     u_idapbc(x,p) = begin
-        # xbar = [rem2pi.(x[1:2], RoundNearest); x[3:end]]
-        xbar = [x[1]; x[2]; x[3:end]]
+        xbar = [rem2pi.(x[1:2], RoundNearest); x[3:end]]
+        # xbar = [x[1]; x[2]; x[3:end]]
         q1, q2, q1dot, q2dot = xbar
         effort = zero(q1)
-        if (1-cos(q1) < 1-cosd(20)) && abs(q1dot) < 5
+        if (1-cos(q1) < 1-cosd(30)) && abs(q1dot) < 5
             xbar[1] = sin(q1)
             xbar[2] = sin(q2)
             effort = -dot(LQR, xbar)
