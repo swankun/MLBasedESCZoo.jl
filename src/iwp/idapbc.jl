@@ -31,6 +31,7 @@ end
 
 struct IDAPBCVariants{T} end
 const NeuralIDAPBC = IDAPBCVariants{:Chain}()
+const NeuralIDAPBCSoSNet = IDAPBCVariants{:SoSNet}()
 const TruthIDAPBC = IDAPBCVariants{:Truth}()
 const DefaultIDAPBC = NeuralIDAPBC
 
@@ -39,32 +40,28 @@ function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum,
     ::IDAPBCVariants{:Chain}
 )
     # Md⁻¹ = PSDMatrix(2, ()->[4.688072309384954 0.5; 0.5 15.339299776947408])
-    # Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
     # Md⁻¹ = PSDMatrix(2, ()->[82.47221754422259 0.0; 81.64365569190376 0.9900262236663507])
-    initps = 1 ./ MLBasedESC.Flux.glorot_uniform(4)
-    Md⁻¹ = PSDMatrix(2, ()-> initps)
-    # Md⁻¹ = Md⁻¹_groundtruth
-    # Md⁻¹ = FastChain(
-    #     FastDense(2, 8, elu; bias=true),
-    #     FastDense(8, 4; bias=true),
-    #     MLBasedESC.posdef
-    # )
+    Md⁻¹ = PSDMatrix(2, ()->[31.622776601683793,0,0,22.360679774997898])
     Vd = FastChain(
-        # inmap, FastDense(4, 8, elu; bias=false),
+        FastDense(2, 8, elu, bias=false),
+        FastDense(8, 4, elu, bias=false),
+        FastDense(4, 1, square, bias=false),
+    )
+    P = IDAPBCProblem(2,M⁻¹,Md⁻¹,V,Vd,G,G⊥)
+    ps = paramstack(P)
+    return P, ps
+end
+function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum, ::IDAPBCVariants{:SoSNet})
+    p = BSON.load("src/iwp/models/neuralidapbc_sosnet.bson")[:paramvec]
+    Vd = FastChain(
         FastDense(2, 12, elu; bias=false),
         FastDense(12, 8, elu; bias=false),
         FastDense(8, 4, elu; bias=false),
         sumofsquares
     )
-    # Vd = FastChain(
-        # FastDense(2, 8, elu, bias=false),
-        # FastDense(8, 4, elu, bias=false),
-        # FastDense(4, 1, square, bias=false),
-    # )
-    # Vd = SOSPoly(2, 1:1)
+    Md⁻¹ = PSDMatrix(2, () -> 1 ./ MLBasedESC.Flux.glorot_uniform(4) )
     P = IDAPBCProblem(2,M⁻¹,Md⁻¹,V,Vd,G,G⊥)
-    ps = paramstack(P)
-    return P, ps
+    return P, p
 end
 function MLBasedESC.IDAPBCProblem(::ReactionWheelPendulum, 
     ::IDAPBCVariants{:Truth}
@@ -96,9 +93,7 @@ function saveidapbc(P, θ, file)
             push!(vds, fname_scope)
         end
     end
-    # push!(vds, ")")
     vds = *(vds...)
-    # @show vds
     idapbc = (
         Mdinv = quote
             PSDMatrix(2, ()->$(θ[1:4]))
@@ -312,21 +307,12 @@ function plot_uru(pbc::IDAPBCProblem, θ; out=true)
         xticks=piticks(0.5),
         yticks=-3:1:3,
         title=L"u^\top R u", 
-        # titlesize=majorfontsize, 
-        # xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
-        # ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
-        # xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
-        # yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
     )
     hm = heatmap!(ax_hm, X,Y,Z, colormap=:RdPu_4, 
         colorrange=(0.0,200),
         # colorrange=(0.0,2000), # TruthIDAPBC
     )
-    Colorbar(fig[1,1][1,2], hm, 
-        # label="(× 1E+04)", labelsize=30, 
-        # ticklabelfont="CMU Serif", ticklabelsize=20*2,
-        # tickformat=(xs)->["$(floor(Int,x/1e4))×10⁴" for x in xs]
-    )
+    Colorbar(fig[1,1][1,2], hm)
     out && save("plots/uRu.svg", fig)
     out && save("plots/uRu.png", fig)
     return fig
@@ -348,14 +334,9 @@ function plot_Vd!(fig, pbc::IDAPBCProblem, θ)
     ax = Axis(fig[1,1][1,1],
         xticks=(range(-pi,pi,step=0.5pi), [L"$-\pi$ ", L"-\pi/2", L"0", L"\pi/2", L"$\pi$ "]),
         # yticks=(range(-2pi,2pi,step=pi), [L"$-2\pi$ ", L"-\pi", L"0", L"\pi", L"$2\pi$ "]),
-        # title=L"u^\top R u", titlesize=majorfontsize, 
         yticks=-50:25:50,
         xlabel=L"Pendulum angle $q_1$ (rad)", 
         ylabel=L"Rotor angle $q_2$ (rad)", 
-        # xlabelfont="CMU Serif", xlabelsize=minorfontsize,
-        # ylabelfont="CMU Serif", ylabelsize=minorfontsize,
-        # xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
-        # yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
     )
     ct = contour!(ax,
         X,Y,(x,y)->pbc[:Vd]([x;y],θ)[1],
@@ -367,8 +348,6 @@ function plot_Vd!(fig, pbc::IDAPBCProblem, θ)
         # levels=vcat(0,1,3,20,100, 200, 600, 1000, 2000),
         colorrange=(0,0.85),
     )
-    # Colorbar(fig[1,1][1,2], ct)
-        #ticklabelfont="CMU Serif", ticklabelsize=30)
     ylims!(-55,55)
     fig
 end

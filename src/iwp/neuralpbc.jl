@@ -205,10 +205,6 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     )
     ax.title = "Hd"
     Colorbar(fig[3,2][1,2], ct)
-    # Axis(fig[4,1], title="Hd(t)")
-    # Hd = map(x->pbc.Hd(wrap(x),θ)[1], eachcol(first(evolution)))
-    # t = range(0, 1, length=size(evolution[1],2))
-    # lines!(t, Hd)
     out && save("plots/out2.png", fig)
     return fig
 end
@@ -307,20 +303,12 @@ function plot_uru(pbc::NeuralPBC, θ; out=true)
         xticks=piticks(0.5),
         yticks=-3:1:3,
         title=L"u^\top R u", 
-        # titlesize=majorfontsize, 
-        # xlabel="Pendulum angle (rad)", xlabelfont="CMU Serif", xlabelsize=minorfontsize,
-        # ylabel="Pendulum velocity (rad/s)", ylabelfont="CMU Serif", ylabelsize=minorfontsize,
-        # xticklabelfont="CMU Serif", xticklabelsize=minorfontsize,
-        # yticklabelfont="CMU Serif", yticklabelsize=minorfontsize,
     )
     hm = heatmap!(ax_hm, X,Y,Z, 
         colormap=:RdPu_4, 
         # colorrange=(0.0,20.0)
     )
-    Colorbar(fig[1,1][1,2], hm, 
-        # label=L"u^\top Ru", labelsize=30, 
-        # ticklabelfont="CMU Serif", ticklabelsize=minorfontsize
-    )
+    Colorbar(fig[1,1][1,2], hm)
     out && save("plots/uRu.png", fig)
     out && save("plots/uRu.svg", fig)
     return fig
