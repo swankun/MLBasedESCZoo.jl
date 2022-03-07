@@ -31,21 +31,21 @@ end
 function policyfrom(P::NeuralPBC; umax=Inf, lqrmax=umax)
     u_neuralpbc(x,p) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        dist = norm([1-cq1, 0.5*q1dot/10])
-        # dist = 1 - cq1
-        eta0 = exp(-(5*dist)^2)
-        eta1 = 1 - eta0
-        lqr = -dot(LQR, [sq1, sq2, q1dot, q2dot])
-        swing = P(x,p)
-        effort = eta0*lqr + eta1*swing
-        return clamp(effort, -umax, umax)
-        # if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
-        #     effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
-        #     return clamp(effort, -lqrmax, lqrmax)
-        # else
-        #     effort = P(x,p)
-        #     return clamp(effort, -umax, umax)
-        # end
+        # dist = norm([1-cq1, 0.5*q1dot/10])
+        # # dist = 1 - cq1
+        # eta0 = exp(-(5*dist)^2)
+        # eta1 = 1 - eta0
+        # lqr = -dot(LQR, [sq1, sq2, q1dot, q2dot])
+        # swing = P(x,p)
+        # effort = eta0*lqr + eta1*swing
+        # return clamp(effort, -umax, umax)
+        if (1-cq1 < 1-cosd(30)) && abs(q1dot) < 5
+            effort = -dot(LQR, [sq1, sq2, q1dot, q2dot])
+            return clamp(effort, -lqrmax, lqrmax)
+        else
+            effort = P(x,p)
+            return clamp(effort, -umax, umax)
+        end
     end
 end
 
@@ -83,7 +83,7 @@ function train!(::ReactionWheelPendulum, pbc::NeuralPBC, ps;
     # )
     dist(x) = begin
         sq1, cq1, sq2, cq2, q1dot, q2dot = x
-        return 4(1-cq1) + (q1dot^2)/4 + (q2dot^2)/5
+        return 5(1-cq1) + (q1dot^2)/4 + (q2dot^2)/8
     end
     loss = SetDistanceLoss(dist, wrap(zeros(4)), 1/100)
     loss_tspan = range(tf/2, tf, step=dt)
@@ -209,7 +209,7 @@ function plot(pbc::NeuralPBC, θ; out=true, kwargs...)
     # Hd = map(x->pbc.Hd(wrap(x),θ)[1], eachcol(first(evolution)))
     # t = range(0, 1, length=size(evolution[1],2))
     # lines!(t, Hd)
-    out && save("plots/out.png", fig)
+    out && save("plots/out2.png", fig)
     return fig
 end
 

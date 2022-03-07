@@ -1,9 +1,9 @@
 
 function default_plot_theme()
     thefont="Latin Modern Roman"
-    majorfontsize = 28*2
-    minorfontsize = 24*2
-    tinyfontsize = 18*2
+    majorfontsize = 24*2
+    minorfontsize = 18*2
+    tinyfontsize = 16*2
     T = Theme(
         Axis = (
             xlabelfont=thefont,
@@ -21,8 +21,11 @@ function default_plot_theme()
             xgridvisible = false,
             ygridvisible = false,
         ),
+        Scatter = (
+            markersize=14,
+        ),
         Lines = (
-            linewidth = 2.5,
+            linewidth = 3,
         ),
         Legend = (
             labelfont=thefont,

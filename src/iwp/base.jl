@@ -31,6 +31,8 @@ function inmap(q,::Any=nothing)
         sin(q[1])
         1-cos(q[2])
         sin(q[2])
+        # q[1]
+        # q[2]
     ]
 end
 function MLBasedESC.jacobian(::typeof(inmap), q,::Any=nothing)
@@ -40,6 +42,8 @@ function MLBasedESC.jacobian(::typeof(inmap), q,::Any=nothing)
         1-qbar[1] 0
         0 qbar[4] 
         0 1-qbar[3] 
+        # 1 0
+        # 0 1
     ]
 end
 
@@ -55,15 +59,15 @@ function friction_model(velocity)
     f_viscous = b2*velocity
     f_coulumb = Fc*tanh(velocity/coulomb_vel)
     f_stribeck = sqrt(2*exp(1)) * (Fbrk - Fc) * exp(-(velocity/stribeck_vel)^2) * velocity/stribeck_vel
-    return f_viscous + f_coulumb + f_stribeck
+    return f_viscous #+ f_coulumb + f_stribeck
 end
 
 function eom!(dx,x,u)
     q1, q2, q1dot, q2dot = x
     dx[1] = q1dot
     dx[2] = q2dot
-    dx[3] = m3*sin(q1)/I1 - u/I1# - b1*q1dot/I1
-    dx[4] = u/I2 #- friction_model(q2dot)/I2
+    dx[3] = m3*sin(q1)/I1 - u/I1 - b1*q1dot/I1
+    dx[4] = u/I2 - friction_model(q2dot)/I2
 end
 function eom(x,u)
     dx = similar(x)
@@ -73,9 +77,9 @@ end
 
 function eomwrap!(dx,x,u)
     sq1, cq1, sq2, cq2, q1dot, q2dot = x
-    I1bar = 1I1
-    I2bar = 1I2
-    m3bar = 1m3
+    I1bar = 1.1I1
+    I2bar = 1.1I2
+    m3bar = 1.1m3
     ϵ = 0.01
     dx[1] = cq1*q1dot - ϵ*sq1*(sq1^2 + cq1^2 - 1)
     dx[2] = -sq1*q1dot - ϵ*cq1*(sq1^2 + cq1^2 - 1)
