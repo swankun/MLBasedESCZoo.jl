@@ -263,7 +263,7 @@ function publication_plot(pbc::IDAPBCProblem, θ; kv=1.2e-3, tf=6.0)
     # ax2.yticks = 0:0.05:0.25
     # ylims!(ax2, -0.0125, 0.26)
     save("plots/out.png", fig)
-    save("plots/idapbc_iwp_evolution.eps", fig)
+    # save("plots/idapbc_iwp_evolution.eps", fig)
     return fig
 end
 
@@ -402,4 +402,115 @@ function two_contours(pbc::IDAPBCProblem, ps)
     save("plots/idapbc_contours.png", fig)
     save("plots/idapbc_contours.eps", fig)
     fig
+end
+
+function animate(::ReactionWheelPendulum)
+    # Simulation setup
+    pbc, ps = IDAPBCProblem(ReactionWheelPendulum(), NeuralIDAPBCSoSNet)
+    x0s = [
+        [1.,-55,0,0],
+        [1.25,-66,0,0],
+        [1.75,-95,0,0],
+        [2.25,-123,0,0],
+        [2.75,-150,0,0],
+        [3.,-160,0,0],
+    ] 
+    x0 = x0s[3]
+    kwargs = (
+        umax = Inf,
+        tf = 6.0,
+        n = 1001,
+        x0 = x0,
+        kv = 0.1,
+    )
+    evolution = evaluate(pbc, ps; kwargs...)
+    traj, _ = evolution
+    q1 = traj[1,:]
+    q2 = traj[2,:] #.- traj[2,end]
+    q1dot = traj[3,:]
+    q2dot = traj[4,:]
+    Hd = map(eachcol(traj)) do x
+        q = x[1:2]
+        qdot = x[3:4]
+        momentum = MLBasedESC._M⁻¹(pbc,q) \ qdot
+        return hamiltoniand(pbc, [q;momentum], ps)
+    end
+    timevec = range(0, kwargs.tf, length=size(traj,2))
+
+    # shape decomposition
+    l1 = 0.17f0
+    l2 = 0.025f0
+    link1xy(θ) = reverse(l1.*sincos(θ))
+    rotor(θ) = Circle(Point2f(link1xy(θ)...), 1f0)
+
+    # Animation setup
+    f = Figure(resolution=round.(Int, (170.66,96)./2.54.*20))
+    fps = 60
+    indpersec = round(Int, (1/fps)/(kwargs.tf/(kwargs.n-1)), RoundUp)
+
+    # Phase plot
+    ax1 = Axis(f[1, 1][1,1],
+        xlabel=L"Pendulum angle $q_1$ (rad)",
+        ylabel=L"$\dot{q}_1$ (rad/s)", 
+    )
+    metaplt1 = lines!(ax1, q1, q1dot, color=:white)
+    timestep = Node(1)
+    phase_points = Node(Point2f[(q1[1],q1dot[1])])
+    lineplt1 = lines!(ax1, phase_points, color=:black)
+    mx1 = @lift([q1[$timestep]])
+    my1 = @lift([q1dot[$timestep]])
+    scplt1 = scatter!(ax1, mx1, my1, strokewidth=2, strokecolor=:black, color=:white)
+
+    # Pendulum plot
+    ax2 = Axis(f[1, 2],
+        topspinevisible = !true,
+        rightspinevisible = !true,
+        leftspinevisible = !true,
+        bottomspinevisible = !true,
+        aspect=AxisAspect(1),
+    )
+    hidedecorations!(ax2)
+    metaplt2 = lines!(ax2, 1.1*[-l1, l1], 1.1*[-l1 ,l1], color=:white)
+    mx2 = @lift([
+        0., -l1*sin(q1[$timestep])
+    ])
+    my2 = @lift([
+        0., l1*cos(q1[$timestep])
+    ])
+    # ex2 = @lift(-l1*sin(q1[$timestep]))
+    # ey2 = @lift( l1*cos(q1[$timestep]))
+    circle = @lift( Circle(Point2f(-l1*sin(q1[$timestep]), l1*cos(q1[$timestep])), l2) )
+    circlelinex = @lift([
+        -l1*sin(q1[$timestep]), 
+        -l1*sin(q1[$timestep])-l2*sin(q1[$timestep]+q2[$timestep])
+    ])
+    circleliney = @lift([
+        l1*cos(q1[$timestep]), 
+        l1*cos(q1[$timestep])+l2*cos(q1[$timestep]+q2[$timestep])
+    ])
+    lplt2 = lines!(ax2, mx2, my2, linewidth=10, color=:gray)
+    # scplt3 = scatter!(ax2, ex2, ey2, markersize=20)
+    poly!(ax2, circle, color = :pink)
+    lines!(ax2, circlelinex, circleliney, color=:black, linewidth=1.0)
+    scatter!(ax2, [0.,], [0.,], color=:green, markersize=20)
+
+    # Hd plot
+    ax3 = Axis(f[1, 1][2,1],
+        xlabel="Time (s)", 
+        ylabel=L"Hamiltonian $H_d^{\;\theta}$",
+    )
+    metaplt2 = lines!(ax3, timevec, Hd, color=:white)
+    Hd_points = Node(Point2f[(timevec[1],Hd[1])])
+    lineplt3 = lines!(ax3, Hd_points, color=:black)
+    mx3 = @lift([timevec[$timestep]])
+    my3 = @lift([Hd[$timestep]])
+    scplt3 = scatter!(ax3, mx3, my3, strokewidth=2, strokecolor=:black, color=:white, glowcolor=:pink)
+
+    # Animate    
+    timestamps = range(1, 1001, step=indpersec)
+    record(f, "plots/test_anim.mp4", timestamps, framerate=fps) do t
+        phase_points[] = push!(phase_points[], Point2f(q1[t], q1dot[t]))
+        Hd_points[] = push!(Hd_points[], Point2f(timevec[t], Hd[t]))
+        timestep[] = t
+    end
 end

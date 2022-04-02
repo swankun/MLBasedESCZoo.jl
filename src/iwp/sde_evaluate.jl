@@ -127,18 +127,25 @@ end
 
 function load_results()
     avg_error = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0] / 100
-    mean_loss_idapbc_bays = [1875.0938900998783, 1675.9833973791526, 1822.6201698397133, 2171.8262754704333, 2033.1851354355458, 2435.4232625524974]
-    std_loss_idapbc_bays = [760.4506704034075, 311.97113336686084, 634.9294210495706, 761.0002155754705, 694.306504815723, 988.7604154360355]
-    
+    mean_loss_idapbc_bays = [1426.315761739796, 1377.3561011910729, 1758.649813444647, 2329.265210119561, 1617.5074606834935, 2385.9294496193756]
+    std_loss_idapbc_bays = [162.8230744271456, 327.51639276177775, 664.9102088777273, 1197.1879844817151, 1295.399728762258, 1287.3320779012363]
+
+    mean_loss_idapbc_deter = [1500.713265363227, 2593.5978501701256, 2378.682175944044, 2708.4706787837267, 9465.571584866691, 7624.2795704683795]
+    std_loss_idapbc_deter =  [1951.812038908012, 3554.240174055424, 2859.8706290924383, 4198.077656962136, 6577.378646241127, 7471.971596845208]
+
+    # avg_error = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0] / 100
+    # mean_loss_idapbc_bays = [1875.0938900998783, 1675.9833973791526, 1822.6201698397133, 2171.8262754704333, 2033.1851354355458, 2435.4232625524974]
+    # std_loss_idapbc_bays = [760.4506704034075, 311.97113336686084, 634.9294210495706, 761.0002155754705, 694.306504815723, 988.7604154360355]
+        
+    # mean_loss_idapbc_deter = [1507.9908487508005, 2855.224256806579, 3129.553568695179, 5248.157817476253, 6714.3536157007065, 8192.95721648705]
+    # std_loss_idapbc_deter = [155.82833052390683, 3351.358194288491, 3194.2180067351237, 4605.997103334661, 6347.886980644229, 8616.814333918048]
+
     mean_loss_neuralpbc_bays = [1744.3401940707463, 1288.3548822482257, 2693.166161909191, 2622.8607975786663, 3264.6158609181884, 3715.6889048095027]
     std_loss_neuralpbc_bays = [3991.2922221197964, 1848.8110741143594, 2437.9983332388997, 3631.8794618642487, 2757.5582684964816, 4080.0875459324707]
     
-    mean_loss_idapbc_deter = [1507.9908487508005, 2855.224256806579, 3129.553568695179, 5248.157817476253, 6714.3536157007065, 8192.95721648705]
-    std_loss_idapbc_deter = [155.82833052390683, 3351.358194288491, 3194.2180067351237, 4605.997103334661, 6347.886980644229, 8616.814333918048]
-    
     mean_loss_neuralpbc_deter = [2795.2178525105087, 2036.9246126029432, 2447.197947137953, 4049.90161650543, 5762.632707814728, 6809.374679844519]
     std_loss_neuralpbc_deter = [2795.2178525105087, 2036.9246126029432, 2447.197947137953, 4049.90161650543, 5762.632707814728, 6809.374679844519]
-
+    
     xpoints = avg_error
     xitp = range(first(xpoints), last(xpoints), length=length(xpoints))
     x = range(first(xitp), last(xitp), length=101) 
@@ -147,15 +154,16 @@ function load_results()
         y(x)
     end
 
-    fig = Figure(resolution=(800,500))
+    fig = Figure(resolution=(900,300))
     ax = Axis(fig[1,1],
         # title=L"U_{[n-\delta, n+\delta]} \times U_{[\delta+0.1, \delta+0.2]}",
         # xticks=(xpoints, [L"U_{[%$(round(0.9*i,digits=1)),%$(round(1.1*i,digits=1))]}" for i=1:N]),
         # xticklabelrotation=pi/6,
+        yticks=0:5000:20000,
         ytickformat=xs->([L"%$(round(x/1e4, digits=1))" for x in xs]),
         xticks=xpoints,
         xlabel="Average error from nominal parameters",
-        ylabel="Performance metric"
+        # ylabel="Performance metric"
     )
     μv = itp(mean_loss_idapbc_bays)
     σv = itp(std_loss_idapbc_bays)
@@ -171,12 +179,12 @@ function load_results()
     )
     l2 = lines!(ax, x, μv)
     s2 = scatter!(ax, avg_error, mean_loss_idapbc_deter)
-    ylims!(ax, 0, 15000)
+    ylims!(ax, -1000, 17000)
     Legend(fig[1,1], [[l1,s1],[l2,s2]], ["Bayesian", "Deterministic"], 
         orientation=:horizontal,
         tellheight = false,
         tellwidth = false,
-        halign = :center,
+        halign = :left,
         valign = :top,
         framevisible = false,
     )
